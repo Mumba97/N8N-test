@@ -1,0 +1,149 @@
+version: "3.8"
+
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: n8npass
+      POSTGRES_DB: n8n
+    volumes:
+      - ./db_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n8n_network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    restart: always
+    command: >
+      redis-server
+      --appendonly no
+      --save ""
+      --protected-mode no
+      --bind 0.0.0.0
+    ports:
+      - "6379:6379"
+    networks:
+      - n8n_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: always
+    ports:
+      - "80:5678"
+    environment:
+      # Base de datos
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: n8npass
+
+      # Modo cola (usa Redis correctamente)
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+
+      # Seguridad básica (aunque sea pruebas)
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: admin123
+
+      # Configuración general
+      N8N_ENCRYPTION_KEY: superSecretEncryptionKey
+      GENERIC_TIMEZONE: America/Mexico_City
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    networks:
+      - n8n_network
+
+  n8n-worker:
+    image: n8nio/n8n:latest
+    container_name: n8n_worker
+    restart: always
+    command: worker
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: n8npass
+
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+
+      N8N_ENCRYPTION_KEY: superSecretEncryptionKey
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - n8n_network
+
+  evolution_api:
+    image: atendai/evolution-api:latest
+    container_name: evolution_api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      AUTHENTICATION_API_KEY: testApiKey123
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://n8n:n8npass@postgres:5432/n8n?schema=evolution
+
+    # 🔥 REDIS PRINCIPAL (FALTABA ESTO)
+      REDIS_ENABLED: "true"
+      REDIS_URL: redis://redis:6379
+      REDIS_DB: 0
+      REDIS_PASSWORD: ""
+      REDIS_PREFIX: evolution
+      REDIS_TLS: "false"
+
+    # 🔥 CACHE REDIS
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_PROVIDER: redis
+      CACHE_REDIS_HOST: redis
+      CACHE_REDIS_PORT: 6379
+      CACHE_REDIS_DB: 0
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - n8n_network
+
+networks:
+  n8n_network:
+    driver: bridge
+

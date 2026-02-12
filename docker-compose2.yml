@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres_db
+    restart: always
+    environment:
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=Metalmania97
+      - POSTGRES_DB=n8n
+    volumes:
+      - ./db_data:/var/lib/postgresql/data
+    networks:
+      - n8n_network
+  redis:
+    image: redis:latest
+    container_name: redis_db
+    restart: always
+    command: [ "redis-server", "--protected-mode", "no", "--bind", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - n8n_network
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n_app
+    restart: always
+    ports:
+      - "80:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres_db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=Metalmania97
+      - N8N_ENCRYPTION_KEY=Metalmania97
+      - N8N_SECURE_COOKIE=false
+    depends_on:
+      - postgres
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    networks:
+      - n8n_network
+  evolution_api:
+    image: atendai/evolution-api:latest
+    container_name: evolution_api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - AUTHENTICATION_API_KEY=Metalmania97
+      # --- VARIABLES DE BASE DE DATOS AÑADIDAS ---
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_CONNECTION_URI=postgresql://n8n:Metalmania97@postgres_db:5432/n8n?schema=evolution
+      # Esto permite que la API use la misma DB de n8n pero en su propio esquema o tablas
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_PROVIDER=redis
+      - CACHE_REDIS_HOST=redis_db
+      - CACHE_REDIS_PORT=6379
+      - CACHE_REDIS_DB=0
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    networks:
+      - n8n_network
+
+networks:
+  n8n_network:
+    driver: bridge

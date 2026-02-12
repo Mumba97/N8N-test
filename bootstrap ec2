@@ -1,0 +1,40 @@
+##botstrap para instalar docker y docker compose en ec2 amazon linux
+#!/bin/bash
+# 1. Actualización del sistema
+dnf update -y || apt-get update -y
+
+# 2. Instalación de Docker
+if [ -f /usr/bin/dnf ]; then
+    dnf install -y docker
+    systemctl start docker
+    systemctl enable docker
+    usermod -aG docker ec2-user
+else
+    apt-get install -y docker.io
+    systemctl start docker
+    systemctl enable docker
+    usermod -aG docker ubuntu
+fi
+
+# 3. Instalación de Docker Compose V2
+mkdir -p /usr/local/lib/docker/cli-plugins/
+curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m) -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# Crear alias para usar 'docker-compose' directamente
+ln -s /usr/local/lib/docker/cli-plugins/docker-compose /usr/bin/docker-compose
+
+# 4. Configuración de Memoria SWAP (Vital para t3.small/medium)
+# Crea 2GB de memoria virtual para evitar caídas por falta de RAM
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+
+# 5. Optimización para Redis y Base de Datos
+sysctl -w vm.overcommit_memory=1
+echo 'vm.overcommit_memory = 1' >> /etc/sysctl.conf
+
+# 6. Crear estructura de carpetas para tu Agencia
+mkdir -p /home/ec2-user/ia-agencia/{db_data,n8n_data,redis_data}
+chown -R ec2-user:ec2-user /home/ec2-user/ia-agencia
